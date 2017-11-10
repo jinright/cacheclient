@@ -1,0 +1,18 @@
+{
+	"HashType": "ring",
+	"Addrs": ["server1:192.168.4.41:6379", "server2:192.168.4.41:6380", "server3:192.168.4.41:6381"],
+	"HeartbeatFrequency": 1,
+	"Password": "",
+	"MaxRetries": 2,
+	"ConnTimeout": {
+		"DialTimeout": 30,
+		"ReadTimeout": 30,
+		"WriteTimeout": 30
+	},
+	"Pool": {
+		"PoolSize": 4,
+		"PoolTimeout": 60,
+		"IdleTimeout": 60,
+		"IdleCheckFrequency": 60
+	}
+}
