@@ -5,7 +5,7 @@ import (
 	"log"
 	"sync/atomic"
 	"time"
-
+	"errors"
 	"github.com/go-redis/redis"
 )
 
@@ -140,6 +140,115 @@ func (cc *CacheClient) exists(key string) (int64, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+// Batch processing
+// Gets get strings from cache
+func (cc *CacheClient) Gets(keys []string) (map[string]*redis.StringCmd, error) {
+	if len(keys) <= 0 {
+		return nil, errors.New("keys is empty")
+	}
+	pipe := cc.ring.Pipeline()
+	pipelineCmds := make(map[string]*redis.StringCmd)
+	for _, key := range keys {
+		pipelineCmds[key] = pipe.Get(key)
+	}
+	_, err := pipe.Exec()
+	if err != nil {
+		return nil, err
+	}
+
+	res := make(map[string]*redis.StringCmd)
+	for key, pcmd := range pipelineCmds {
+		res[key] = pcmd
+	}
+
+	return res, nil
+}
+
+// Sets set strings to cache
+func (cc *CacheClient) Sets(kvs map[string]interface{},expire int) (error) {
+	if len(kvs) <= 0 {
+		return errors.New("kvs is empty")
+	}
+	pipe := cc.ring.Pipeline()
+	pipelineCmds := make([]*redis.StatusCmd, 0, len(kvs))
+	for key,value  := range kvs {
+		pipelineCmds = append(pipelineCmds, pipe.Set(key,value,time.Duration(expire)))
+	}
+	_, err := pipe.Exec()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetStrings get strings from cache
+func (cc *CacheClient) GetStrings(keys []string) (map[string]string, error) {
+	kvs, err := cc.Gets(keys)
+	if(err != nil){
+		return nil,err
+	}
+	rets := make(map[string]string)
+	for key,value := range kvs{
+		value_real,err_real := value.Result();
+		if (err_real != nil){
+			return rets,errors.New("error:" + err_real.Error() + "; key:" + key)
+		}
+		rets[key] = value_real;
+	}
+
+	return rets,nil
+}
+
+// SetStrings set strings to cache
+func (cc *CacheClient) SetStrings(kvs map[string]string, expire int) error {
+	kvs_real := make(map[string]interface{})
+	for key,value := range kvs{
+		kvs_real[key] = value;
+	}
+	err := cc.Sets(kvs_real, expire)
+	return err
+}
+
+// GetObjects get objects from cache
+func (cc *CacheClient) GetObjects(keys []string,value_type interface{})(map[string]interface{},error) {
+	if len(keys) <= 0 {
+		return nil,errors.New("keys is empty")
+	}
+	kvs_real,err := cc.Gets(keys);
+	if (err != nil){
+		return nil,err
+	}
+	kvs := make(map[string]interface{})
+	for key,value :=range kvs_real{
+		value_byte,err_real := value.Bytes()
+		if (err_real != nil){
+			return kvs,err_real
+		}
+		err_real = json.Unmarshal(value_byte,&value_type)
+		kvs[key] = value_type
+		if (err_real != nil){
+			log.Printf("cache: Unmarshal key=%q failed: %s", key, err_real)
+			return kvs,err_real
+		}
+	}
+	return kvs,nil
+}
+
+// SetObjects set objects to cache, object
+func (cc *CacheClient) SetObjects(kvs map[string]interface{}, expire int) error {
+	for key,value := range kvs{
+		value_real, err := json.Marshal(value)
+		if err != nil {
+			log.Printf("cache: Marshal key=%q failed: %s", key, err)
+			return err
+		}
+		kvs[key] = value_real
+	}
+	err := cc.Sets(kvs, expire)
+	return err
 }
 
 // Stats info
